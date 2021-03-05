@@ -11,14 +11,15 @@ import com.microsoft.azure.sdk.iot.device.transport.TransportUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.proton.amqp.Binary;
 import org.apache.qpid.proton.amqp.Symbol;
-import org.apache.qpid.proton.amqp.messaging.Data;
-import org.apache.qpid.proton.amqp.messaging.Properties;
-import org.apache.qpid.proton.amqp.messaging.Source;
+import org.apache.qpid.proton.amqp.messaging.*;
 import org.apache.qpid.proton.amqp.transport.DeliveryState;
 import org.apache.qpid.proton.amqp.transport.ReceiverSettleMode;
 import org.apache.qpid.proton.engine.*;
 import org.apache.qpid.proton.reactor.FlowController;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
@@ -185,16 +186,23 @@ public abstract class AmqpsReceiverLinkHandler extends BaseHandler
     {
         log.trace("Converting proton message to iot hub message for {} receiver link with link correlation id {}. Proton message correlation id {}", getLinkInstanceType(), this.linkCorrelationId, protonMsg.getCorrelationId());
         byte[] msgBody;
-        Data d = (Data) protonMsg.getBody();
-        if (d != null)
-        {
-            Binary b = d.getValue();
-            msgBody = new byte[b.getLength()];
-            ByteBuffer buffer = b.asByteBuffer();
-            buffer.get(msgBody);
+        final Section body = protonMsg.getBody();
+        if (body.getType().equals(Section.SectionType.Data)) {
+            Data d = (Data) protonMsg.getBody();
+            if (d != null) {
+                Binary b = d.getValue();
+                msgBody = new byte[b.getLength()];
+                ByteBuffer buffer = b.asByteBuffer();
+                buffer.get(msgBody);
+            } else {
+                msgBody = new byte[0];
+            }
         }
-        else
-        {
+        else if (body.getType().equals(Section.SectionType.AmqpValue)) {
+           msgBody = trySerializeAmqpValue((AmqpValue) body);
+        }
+        else {
+            log.warn("Received AMQP body <{}>, with invalid SectionType: <{}>", body, body.getType());
             msgBody = new byte[0];
         }
 
@@ -256,6 +264,18 @@ public abstract class AmqpsReceiverLinkHandler extends BaseHandler
         }
 
         return iotHubTransportMessage;
+    }
+
+    private static byte[] trySerializeAmqpValue(final AmqpValue amqpValue) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ObjectOutputStream os = new ObjectOutputStream(out);
+            os.writeObject(amqpValue);
+            return out.toByteArray();
+        } catch (final IOException e) {
+            log.warn("Failed to serialize AMQP message body: <{}>, because of: <{}>", amqpValue, e);
+            return new byte[0];
+        }
     }
 
     void close()
