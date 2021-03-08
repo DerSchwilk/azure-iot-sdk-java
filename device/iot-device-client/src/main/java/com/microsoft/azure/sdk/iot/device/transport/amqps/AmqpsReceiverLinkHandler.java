@@ -270,7 +270,7 @@ public abstract class AmqpsReceiverLinkHandler extends BaseHandler
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             ObjectOutputStream os = new ObjectOutputStream(out);
-            os.writeObject(amqpValue);
+            os.writeObject(amqpValue.getValue());
             return out.toByteArray();
         } catch (final IOException e) {
             log.warn("Failed to serialize AMQP message body: <{}>, because of: <{}>", amqpValue, e);
